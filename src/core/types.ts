@@ -42,6 +42,14 @@ export interface PageInput {
    * `query --lang` filtering.
    */
   page_kind?: PageKind;
+  /**
+   * v37: optional explicit source_id for multi-source brains. When omitted,
+   * Postgres applies the schema DEFAULT 'default'. When set, the row is
+   * inserted (or upserted) into that source's namespace — ON CONFLICT key
+   * is (source_id, slug). Threaded by put_page when the OAuth client has a
+   * `default_source_id` pin (v37 migration).
+   */
+  source_id?: string;
 }
 
 export interface PageFilters {
@@ -66,6 +74,12 @@ export interface PageFilters {
    * the 72h window before the autopilot purge phase hard-deletes them.
    */
   includeDeleted?: boolean;
+  /**
+   * v37/v38: scope listing to a specific source. When set, only pages with
+   * matching source_id are returned. Used by token-pinned reads as a HARD
+   * scope. Omitted = unscoped (legacy cross-source visible).
+   */
+  sourceId?: string;
 }
 
 /** v0.26.5 — opts for getPage / softDeletePage / restorePage. */

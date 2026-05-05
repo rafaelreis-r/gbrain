@@ -1,6 +1,5 @@
 import type { BrainEngine } from './engine.ts';
 import { slugifyPath } from './sync.ts';
-import { getFtsLanguage } from './fts-language.ts';
 
 /**
  * Schema migrations — run automatically on initSchema().
@@ -1538,74 +1537,46 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 37,
-    name: 'configurable_fts_language',
-    // Recreate the two search_vector trigger functions using the language
-    // configured via GBRAIN_FTS_LANGUAGE (default 'english'). Idempotent:
-    // CREATE OR REPLACE swaps the function body atomically; no trigger
-    // recreation needed since the trigger references the function by name.
+    name: 'oauth_client_default_source_id',
+    // Per-OAuth-client default source pinning. When an OAuth client has a
+    // default_source_id configured, page writes/reads from that client are
+    // routed to that source unless the request explicitly overrides via
+    // params.source_id. Multi-agent deployments use this to give each agent
+    // its own brain-source without per-call configuration.
     //
-    // Renumbered v33→v37 to avoid collision with v0.27 migrations.
-    // Use `gbrain reindex-search-vector` to reapply after changing env var.
-    sql: '',
-    handler: async (engine) => {
-      const lang = getFtsLanguage();
+    // FK with ON DELETE SET NULL: deleting a source clears the pin (request
+    // falls back to 'default') rather than orphaning the OAuth client.
+    // Idempotent (ADD COLUMN IF NOT EXISTS).
+    sql: `
+      ALTER TABLE oauth_clients
+        ADD COLUMN IF NOT EXISTS default_source_id TEXT
+        REFERENCES sources(id) ON DELETE SET NULL;
 
-      const recreatePagesFn = `
-        CREATE OR REPLACE FUNCTION update_page_search_vector() RETURNS trigger AS $fn$
-        DECLARE
-          timeline_text TEXT;
-        BEGIN
-          SELECT coalesce(string_agg(summary || ' ' || detail, ' '), '')
-          INTO timeline_text
-          FROM timeline_entries
-          WHERE page_id = NEW.id;
+      CREATE INDEX IF NOT EXISTS idx_oauth_clients_default_source
+        ON oauth_clients(default_source_id)
+        WHERE default_source_id IS NOT NULL;
+    `,
+  },
+  {
+    version: 38,
+    name: 'access_token_default_source_id',
+    // Per-API-key default source pinning. Mirror of v37 (oauth_clients) for
+    // the legacy access_tokens table. API keys (no TTL) are preferred over
+    // OAuth tokens (TTL) for headless agent setups, so the same source-pin
+    // ergonomics need to land on the legacy path.
+    //
+    // FK with ON DELETE SET NULL: deleting a source clears the pin (request
+    // falls back to 'default') rather than orphaning the API key.
+    // Idempotent (ADD COLUMN IF NOT EXISTS).
+    sql: `
+      ALTER TABLE access_tokens
+        ADD COLUMN IF NOT EXISTS default_source_id TEXT
+        REFERENCES sources(id) ON DELETE SET NULL;
 
-          NEW.search_vector :=
-            setweight(to_tsvector('${lang}', coalesce(NEW.title, '')), 'A') ||
-            setweight(to_tsvector('${lang}', coalesce(NEW.compiled_truth, '')), 'B') ||
-            setweight(to_tsvector('${lang}', coalesce(NEW.timeline, '')), 'C') ||
-            setweight(to_tsvector('${lang}', coalesce(timeline_text, '')), 'C');
-
-          RETURN NEW;
-        END;
-        $fn$ LANGUAGE plpgsql;
-      `;
-
-      const recreateChunksFn = `
-        CREATE OR REPLACE FUNCTION update_chunk_search_vector() RETURNS TRIGGER AS $fn$
-        BEGIN
-          NEW.search_vector :=
-            setweight(to_tsvector('${lang}', COALESCE(NEW.doc_comment, '')), 'A') ||
-            setweight(to_tsvector('${lang}', COALESCE(NEW.symbol_name_qualified, '')), 'A') ||
-            setweight(to_tsvector('${lang}', COALESCE(NEW.chunk_text, '')), 'B');
-          RETURN NEW;
-        END;
-        $fn$ LANGUAGE plpgsql;
-      `;
-
-      await engine.executeRaw(recreatePagesFn);
-      await engine.executeRaw(recreateChunksFn);
-
-      if (lang === 'english') {
-        console.log(`  v37: FTS trigger functions recreated with language='english' (default — no backfill needed)`);
-        return;
-      }
-
-      const backfillPages = `UPDATE pages SET id = id WHERE search_vector IS NOT NULL;`;
-      const backfillChunks = `
-        UPDATE content_chunks
-        SET search_vector =
-          setweight(to_tsvector('${lang}', COALESCE(doc_comment, '')), 'A') ||
-          setweight(to_tsvector('${lang}', COALESCE(symbol_name_qualified, '')), 'A') ||
-          setweight(to_tsvector('${lang}', COALESCE(chunk_text, '')), 'B')
-        WHERE search_vector IS NOT NULL;
-      `;
-
-      await engine.executeRaw(backfillPages);
-      await engine.executeRaw(backfillChunks);
-
-      console.log(`  v37: FTS trigger functions recreated with language='${lang}' + backfilled existing rows`);
-    },
+      CREATE INDEX IF NOT EXISTS idx_access_tokens_default_source
+        ON access_tokens(default_source_id)
+        WHERE default_source_id IS NOT NULL;
+    `,
   },
 ];
 

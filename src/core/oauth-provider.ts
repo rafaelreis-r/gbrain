@@ -381,12 +381,33 @@ export class GBrainOAuthProvider implements OAuthServerProvider {
     // verifyAccessToken returns client_name in AuthInfo — eliminates the
     // separate per-request lookup at serve-http.ts that was the N+1 hot
     // path (see PR #586 review D14=B).
-    const oauthRows = await this.sql`
-      SELECT t.client_id, t.scopes, t.expires_at, t.resource, c.client_name
-      FROM oauth_tokens t
-      LEFT JOIN oauth_clients c ON c.client_id = t.client_id
-      WHERE t.token_hash = ${tokenHash} AND t.token_type = 'access'
-    `;
+    // v37: include c.default_source_id so per-client source pinning is
+    // resolved at token-verify time without an extra request-time roundtrip.
+    // The column is nullable + ON DELETE SET NULL, so a deleted source
+    // surfaces as NULL here and the request falls back to 'default'.
+    let oauthRows: Record<string, unknown>[];
+    try {
+      oauthRows = await this.sql`
+        SELECT t.client_id, t.scopes, t.expires_at, t.resource,
+               c.client_name, c.default_source_id
+        FROM oauth_tokens t
+        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+        WHERE t.token_hash = ${tokenHash} AND t.token_type = 'access'
+      `;
+    } catch (e) {
+      // Pre-v37 brains lack default_source_id. Fall back to the legacy
+      // shape so verifyAccessToken keeps working before the migration runs.
+      if (isUndefinedColumnError(e, 'default_source_id')) {
+        oauthRows = await this.sql`
+          SELECT t.client_id, t.scopes, t.expires_at, t.resource, c.client_name
+          FROM oauth_tokens t
+          LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+          WHERE t.token_hash = ${tokenHash} AND t.token_type = 'access'
+        `;
+      } else {
+        throw e;
+      }
+    }
 
     if (oauthRows.length > 0) {
       const row = oauthRows[0];
@@ -404,14 +425,33 @@ export class GBrainOAuthProvider implements OAuthServerProvider {
         scopes: (row.scopes as string[]) || [],
         expiresAt,
         resource: row.resource ? new URL(row.resource as string) : undefined,
+        defaultSourceId: (row.default_source_id as string | null) ?? undefined,
       } as AuthInfo;
     }
 
-    // Fallback: legacy access_tokens table (backward compat)
-    const legacyRows = await this.sql`
-      SELECT name FROM access_tokens
-      WHERE token_hash = ${tokenHash} AND revoked_at IS NULL
-    `;
+    // Fallback: legacy access_tokens table (backward compat).
+    // v38: include default_source_id so per-API-key source pinning is
+    // resolved at token-verify time without an extra request-time roundtrip.
+    // The column is nullable + ON DELETE SET NULL, so a deleted source
+    // surfaces as NULL here and the request falls back to 'default'.
+    let legacyRows: Record<string, unknown>[];
+    try {
+      legacyRows = await this.sql`
+        SELECT name, default_source_id FROM access_tokens
+        WHERE token_hash = ${tokenHash} AND revoked_at IS NULL
+      `;
+    } catch (e) {
+      // Pre-v38 brains lack default_source_id. Fall back to the legacy
+      // shape so verifyAccessToken keeps working before the migration runs.
+      if (isUndefinedColumnError(e, 'default_source_id')) {
+        legacyRows = await this.sql`
+          SELECT name FROM access_tokens
+          WHERE token_hash = ${tokenHash} AND revoked_at IS NULL
+        `;
+      } else {
+        throw e;
+      }
+    }
 
     if (legacyRows.length > 0) {
       // Legacy tokens get full admin access (grandfather in).
@@ -427,6 +467,7 @@ export class GBrainOAuthProvider implements OAuthServerProvider {
         clientName: name,
         scopes: ['read', 'write', 'admin'],
         expiresAt: Math.floor(Date.now() / 1000) + 365 * 24 * 3600, // Legacy tokens never expire — set 1yr future
+        defaultSourceId: (legacyRows[0].default_source_id as string | null) ?? undefined,
       } as AuthInfo;
     }
 

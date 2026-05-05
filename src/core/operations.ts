@@ -164,6 +164,72 @@ export function validateFilename(name: string): void {
   }
 }
 
+/**
+ * v37/v38: Resolve effective source scope for a read operation.
+ *
+ * Precedence (per CONTRIBUTING + docs/architecture/brains-and-sources.md):
+ *   1. Explicit `params.source_id` (admin / cross-source override) — wins.
+ *   2. `ctx.defaultSourceId` (token pin from OAuth client / API key) — HARD
+ *      scope. The credential is bound to one source; reads MUST NOT leak
+ *      cross-source via slug collisions.
+ *   3. Neither — undefined (legacy unscoped behavior; cross-source visible).
+ *
+ * Returns the effective sourceId or `undefined` when reads should remain
+ * unscoped. The caller decides how to apply it (engine opts, post-filter).
+ */
+export function resolveReadScope(
+  ctx: { defaultSourceId?: string },
+  params: Record<string, unknown>,
+): string | undefined {
+  const explicit = typeof params.source_id === 'string' && params.source_id ? params.source_id : undefined;
+  if (explicit) return explicit;
+  return ctx.defaultSourceId || undefined;
+}
+
+/**
+ * v37/v38: Filter a list of results by `source_id` when a read scope is
+ * pinned. Used for engine ops whose return shape carries `source_id` but
+ * whose engine signature doesn't accept a source filter (e.g. searchKeyword,
+ * getLinks). When `scope` is undefined this is a no-op (legacy behavior).
+ *
+ * Items without a `source_id` field pass through untouched (legacy rows or
+ * fixtures pre-multi-source). Items with `source_id === null` are treated as
+ * 'default' to match schema DEFAULT semantics.
+ */
+export function filterBySourceScope<T>(
+  rows: T[],
+  scope: string | undefined,
+): T[] {
+  if (!scope) return rows;
+  return rows.filter(r => {
+    const sid = (r as { source_id?: string | null }).source_id;
+    if (sid === undefined) return true; // shape doesn't carry source — pass through
+    const effective = sid === null ? 'default' : sid;
+    return effective === scope;
+  });
+}
+
+/**
+ * v37/v38: Guard a slug-based read against a pinned source scope. When a
+ * token is pinned, the agent MUST NOT be able to read pages (or their
+ * derived data: links, tags, timeline, chunks, versions, raw_data) that
+ * live in another source by guessing the slug.
+ *
+ * Returns true when the slug exists in the pinned source (or when no scope
+ * applies). Returns false when the slug is opaque to this credential, in
+ * which case the caller should return an empty/not-found response so that
+ * cross-source existence is not leaked through differential responses.
+ */
+export async function slugVisibleInScope(
+  engine: { getPage: (slug: string, opts?: { sourceId?: string; includeDeleted?: boolean }) => Promise<unknown> },
+  slug: string,
+  scope: string | undefined,
+): Promise<boolean> {
+  if (!scope) return true;
+  const page = await engine.getPage(slug, { sourceId: scope, includeDeleted: true });
+  return !!page;
+}
+
 export interface ParamDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   required?: boolean;
@@ -193,6 +259,16 @@ export interface AuthInfo {
   clientName?: string;
   scopes: string[];
   expiresAt?: number;
+  /**
+   * Per-OAuth-client default source pin (v37 migration). When set, page
+   * writes/reads from this client are routed to this source unless the
+   * request supplies an explicit `source_id`. Resolved by
+   * `verifyAccessToken` from `oauth_clients.default_source_id` so the
+   * dispatcher doesn't pay an extra DB roundtrip per request.
+   *
+   * NULL/undefined means: fall back to legacy 'default' source.
+   */
+  defaultSourceId?: string;
 }
 
 export interface OperationContext {
@@ -274,6 +350,17 @@ export interface OperationContext {
    * working without change).
    */
   brainId?: string;
+  /**
+   * Per-OAuth-client default source pin (v37 migration). Threaded by
+   * `serve-http.ts` from `AuthInfo.defaultSourceId` after the OAuth
+   * verifier resolves the token. Consumed by source-aware operations
+   * (`get_page`, `put_page`) with the precedence:
+   *
+   *   params.source_id > ctx.defaultSourceId > 'default'
+   *
+   * Local CLI invocations leave this undefined (no OAuth client → no pin).
+   */
+  defaultSourceId?: string;
 }
 
 export interface Operation {
@@ -294,33 +381,6 @@ export interface Operation {
 
 // --- Page CRUD ---
 
-async function assertSourceExists(ctx: OperationContext, sourceId: string): Promise<void> {
-  const rows = await ctx.engine.executeRaw<{ id: string }>(
-    'SELECT id FROM sources WHERE id = $1 LIMIT 1',
-    [sourceId],
-  );
-  if (rows.length === 0) {
-    throw new OperationError(
-      'invalid_params',
-      `Unknown source_id: ${sourceId}`,
-      `Register the source first with: gbrain sources add ${sourceId} --path <path>`,
-    );
-  }
-}
-
-async function getPageTags(ctx: OperationContext, slug: string, sourceId?: string): Promise<string[]> {
-  if (!sourceId) return ctx.engine.getTags(slug);
-  const rows = await ctx.engine.executeRaw<{ tag: string }>(
-    `SELECT t.tag
-     FROM tags t
-     JOIN pages p ON p.id = t.page_id
-     WHERE p.slug = $1 AND p.source_id = $2
-     ORDER BY t.tag`,
-    [slug, sourceId],
-  );
-  return rows.map(r => r.tag);
-}
-
 const get_page: Operation = {
   name: 'get_page',
   description: 'Read a page by slug (supports optional fuzzy matching). Soft-deleted pages are hidden by default; pass include_deleted: true to surface them with deleted_at populated (see v0.26.5 recovery window).',
@@ -328,21 +388,28 @@ const get_page: Operation = {
     slug: { type: 'string', required: true, description: 'Page slug' },
     fuzzy: { type: 'boolean', description: 'Enable fuzzy slug resolution (default: false)' },
     include_deleted: { type: 'boolean', description: 'v0.26.5: surface soft-deleted pages with deleted_at populated (default: false). Used by restore workflows.' },
-    source_id: { type: 'string', required: false, description: 'Source to read from. Defaults to "default". Must be a registered source.' },
+    source_id: { type: 'string', description: 'v37/v38: scope read to a specific source. Precedence: params.source_id > ctx.defaultSourceId (token pin, HARD scope) > unscoped (first match across sources).' },
   },
   handler: async (ctx, p) => {
     const slug = p.slug as string;
     const fuzzy = (p.fuzzy as boolean) || false;
     const includeDeleted = (p.include_deleted as boolean) === true;
-    const sourceId = ((p.source_id || p.source) as string | undefined) || undefined;
 
-    let page = await ctx.engine.getPage(slug, { includeDeleted, sourceId });
+    // v37/v38 read scope (HARD when token is pinned): params.source_id wins,
+    // else ctx.defaultSourceId is a hard constraint, else unscoped (legacy).
+    const sourceId = resolveReadScope(ctx, p);
+
+    const opts = sourceId
+      ? { includeDeleted, sourceId }
+      : { includeDeleted };
+
+    let page = await ctx.engine.getPage(slug, opts);
     let resolved_slug: string | undefined;
 
     if (!page && fuzzy) {
       const candidates = await ctx.engine.resolveSlugs(slug);
       if (candidates.length === 1) {
-        page = await ctx.engine.getPage(candidates[0], { includeDeleted, sourceId });
+        page = await ctx.engine.getPage(candidates[0], opts);
         resolved_slug = candidates[0];
       } else if (candidates.length > 1) {
         return { error: 'ambiguous_slug', candidates };
@@ -353,7 +420,7 @@ const get_page: Operation = {
       throw new OperationError('page_not_found', `Page not found: ${slug}`, includeDeleted ? 'Check the slug or use fuzzy: true' : 'Page may be soft-deleted; pass include_deleted: true to verify');
     }
 
-    const tags = await getPageTags(ctx, page.slug, sourceId);
+    const tags = await ctx.engine.getTags(page.slug);
     return { ...page, tags, ...(resolved_slug ? { resolved_slug } : {}) };
   },
   scope: 'read',
@@ -366,13 +433,12 @@ const put_page: Operation = {
   params: {
     slug: { type: 'string', required: true, description: 'Page slug' },
     content: { type: 'string', required: true, description: 'Full markdown content with YAML frontmatter' },
-    source_id: { type: 'string', required: false, description: 'Source to write into. Defaults to "default". Must be a registered source.' },
+    source_id: { type: 'string', description: 'v37: target a specific source. Precedence: params.source_id > ctx.defaultSourceId (OAuth client pin) > schema DEFAULT (\'default\').' },
   },
   mutating: true,
   scope: 'write',
   handler: async (ctx, p) => {
     const slug = p.slug as string;
-    const sourceId = ((p.source_id || p.source) as string | undefined) || undefined;
 
     // Subagent namespace enforcement (v0.15+). Runs BEFORE the dry-run
     // short-circuit so preview calls surface the same rejection. Confines
@@ -408,13 +474,17 @@ const put_page: Operation = {
     }
 
     if (ctx.dryRun) return { dry_run: true, action: 'put_page', slug: p.slug };
-    if (sourceId) await assertSourceExists(ctx, sourceId);
     // Skip embedding when the AI gateway has no embedding provider configured.
     // Checks all auth env vars for the resolved provider, not just OPENAI_API_KEY,
     // so Gemini / Ollama / Voyage brains don't silently drop embeddings (Codex C2).
     const { isAvailable } = await import('./ai/gateway.ts');
     const noEmbed = !isAvailable('embedding');
-    const result = await importFromContent(ctx.engine, slug, p.content as string, { noEmbed, sourceId });
+    // v37/v38 write scope: explicit param > ctx pin (token, HARD) > undefined
+    // (engine applies schema DEFAULT 'default'). Resolved here so the import
+    // path, dedupe lookup, and downstream auto-link all see the same source.
+    const resolvedSourceId = resolveReadScope(ctx, p);
+    const result = await importFromContent(ctx.engine, slug, p.content as string,
+      resolvedSourceId ? { noEmbed, sourceId: resolvedSourceId } : { noEmbed });
 
     // Auto-link post-hook: runs AFTER importFromContent (which is its own
     // transaction). Runs even on status='skipped' so reconciliation catches drift
@@ -741,13 +811,16 @@ const list_pages: Operation = {
     tag: { type: 'string', description: 'Filter by tag' },
     limit: { type: 'number', description: 'Max results (default 50)' },
     include_deleted: { type: 'boolean', description: 'v0.26.5: include soft-deleted pages (default: false). Used by restore workflows and operator diagnostics.' },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source. Precedence: params.source_id > ctx.defaultSourceId (token pin, HARD scope) > unscoped.' },
   },
   handler: async (ctx, p) => {
+    const scope = resolveReadScope(ctx, p);
     const pages = await ctx.engine.listPages({
       type: p.type as any,
       tag: p.tag as string,
       limit: clampSearchLimit(p.limit as number | undefined, 50, 100),
       includeDeleted: (p.include_deleted as boolean) === true,
+      ...(scope ? { sourceId: scope } : {}),
     });
     return pages.map(pg => ({
       slug: pg.slug,
@@ -770,15 +843,18 @@ const search: Operation = {
     query: { type: 'string', required: true },
     limit: { type: 'number', description: 'Max results (default 20)' },
     offset: { type: 'number', description: 'Skip first N results (for pagination)' },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source. Precedence: params.source_id > ctx.defaultSourceId (token pin, HARD scope) > unscoped.' },
   },
   handler: async (ctx, p) => {
     const startedAt = Date.now();
     const queryText = p.query as string;
+    const scope = resolveReadScope(ctx, p);
     const raw = await ctx.engine.searchKeyword(queryText, {
       limit: (p.limit as number) || 20,
       offset: (p.offset as number) || 0,
+      ...(scope ? { sourceId: scope } : {}),
     });
-    const results = dedupResults(raw);
+    const results = filterBySourceScope(dedupResults(raw), scope);
     const latency_ms = Date.now() - startedAt;
 
     // Op-layer capture (v0.25.0). Fire-and-forget — no await on the
@@ -824,12 +900,14 @@ const query: Operation = {
     // v0.20.0 Cathedral II Layer 7 (A2) / Layer 10 C3: two-pass structural expansion.
     near_symbol: { type: 'string', description: 'Anchor retrieval at this qualified symbol name (e.g., BrainEngine.searchKeyword). Enables A2 two-pass.' },
     walk_depth: { type: 'number', description: 'Structural walk depth 1-2. Default 0 (off). Expands anchors through code_edges with 1/(1+hop) decay.' },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source. Precedence: params.source_id > ctx.defaultSourceId (token pin, HARD scope) > unscoped.' },
   },
   handler: async (ctx, p) => {
     const startedAt = Date.now();
     const expand = p.expand !== false;
     const detail = (p.detail as 'low' | 'medium' | 'high') || undefined;
     const queryText = p.query as string;
+    const scope = resolveReadScope(ctx, p);
 
     // v0.25.0 — capture meta side-channel. hybridSearch's return contract
     // stays SearchResult[] (Cathedral II callers depend on that); meta
@@ -845,8 +923,12 @@ const query: Operation = {
       symbolKind: (p.symbol_kind as string) || undefined,
       nearSymbol: (p.near_symbol as string) || undefined,
       walkDepth: typeof p.walk_depth === 'number' ? (p.walk_depth as number) : undefined,
+      sourceId: scope,
       onMeta: (m) => { capturedMeta = m; },
     });
+    // v37/v38 hard-scope: belt-and-suspenders post-filter in case any
+    // search path forgets the SearchOpts.sourceId hint.
+    const scopedResults = filterBySourceScope(results, scope);
     const latency_ms = Date.now() - startedAt;
 
     // Op-layer capture (v0.25.0). Fire-and-forget. meta tells gbrain-evals
@@ -862,7 +944,7 @@ const query: Operation = {
         {
           tool_name: 'query',
           query: queryText,
-          results,
+          results: scopedResults,
           meta,
           latency_ms,
           remote: ctx.remote ?? false,
@@ -875,7 +957,7 @@ const query: Operation = {
       );
     }
 
-    return results;
+    return scopedResults;
   },
   scope: 'read',
   cliHints: { name: 'query', positional: ['query'] },
@@ -922,9 +1004,13 @@ const get_tags: Operation = {
   description: 'List tags for a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getTags(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getTags(slug);
   },
   scope: 'read',
   cliHints: { name: 'tags', positional: ['slug'] },
@@ -976,9 +1062,13 @@ const get_links: Operation = {
   description: 'List outgoing links from a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned). Cross-source links are opaque to pinned tokens.' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getLinks(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getLinks(slug);
   },
   scope: 'read',
 };
@@ -988,9 +1078,13 @@ const get_backlinks: Operation = {
   description: 'List incoming links to a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned). Cross-source backlinks are opaque to pinned tokens.' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getBacklinks(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getBacklinks(slug);
   },
   scope: 'read',
   cliHints: { name: 'backlinks', positional: ['slug'] },
@@ -1017,6 +1111,8 @@ const traverse_graph: Operation = {
   },
   handler: async (ctx, p) => {
     const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
     const requestedDepth = (p.depth as number) || 5;
     if (requestedDepth > TRAVERSE_DEPTH_CAP) {
       ctx.logger.warn(`[gbrain] traverse_graph depth clamped from ${requestedDepth} to ${TRAVERSE_DEPTH_CAP}`);
@@ -1024,12 +1120,16 @@ const traverse_graph: Operation = {
     const depth = Math.max(1, Math.min(requestedDepth, TRAVERSE_DEPTH_CAP));
     const linkType = p.link_type as string | undefined;
     const direction = p.direction as 'in' | 'out' | 'both' | undefined;
+    // v37/v38: when a token is pinned, post-filter results to keep only same-source nodes/paths
+    // so cross-source neighbours are opaque to pinned tokens.
     // Backward compat: when neither link_type nor direction is provided, return
     // the legacy GraphNode[] shape. Once either is set, switch to GraphPath[].
     if (linkType === undefined && direction === undefined) {
-      return ctx.engine.traverseGraph(slug, depth);
+      const nodes = await ctx.engine.traverseGraph(slug, depth);
+      return filterBySourceScope(nodes as Array<{ source_id?: string | null }>, scope);
     }
-    return ctx.engine.traversePaths(slug, { depth, linkType, direction });
+    const paths = await ctx.engine.traversePaths(slug, { depth, linkType, direction });
+    return filterBySourceScope(paths as Array<{ source_id?: string | null }>, scope);
   },
   scope: 'read',
   cliHints: { name: 'graph', positional: ['slug'] },
@@ -1083,9 +1183,13 @@ const get_timeline: Operation = {
   description: 'Get timeline entries for a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getTimeline(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getTimeline(slug);
   },
   scope: 'read',
   cliHints: { name: 'timeline', positional: ['slug'] },
@@ -1120,9 +1224,13 @@ const get_versions: Operation = {
   description: 'Page version history',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getVersions(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getVersions(slug);
   },
   scope: 'read',
   cliHints: { name: 'history', positional: ['slug'] },
@@ -1198,10 +1306,14 @@ const get_raw_data: Operation = {
   description: 'Retrieve raw data for a page',
   params: {
     slug: { type: 'string', required: true },
-    source: { type: 'string', description: 'Filter by source' },
+    source: { type: 'string', description: 'Filter by source (raw-data integration name; not page source_id)' },
+    source_id: { type: 'string', description: 'v37/v38: scope to a page source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getRawData(p.slug as string, p.source as string | undefined);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getRawData(slug, p.source as string | undefined);
   },
   scope: 'read',
 };
@@ -1213,9 +1325,19 @@ const resolve_slugs: Operation = {
   description: 'Fuzzy-resolve a partial slug to matching page slugs',
   params: {
     partial: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.resolveSlugs(p.partial as string);
+    const scope = resolveReadScope(ctx, p);
+    const candidates = await ctx.engine.resolveSlugs(p.partial as string);
+    if (!scope) return candidates;
+    // Filter candidate slugs to those that exist in the pinned source. Each
+    // getPage is keyed on (source_id, slug) so this is index-friendly. Done
+    // in parallel; capped at 100 candidates by resolveSlugs implementation.
+    const checks = await Promise.all(
+      candidates.map(async (s) => ((await slugVisibleInScope(ctx.engine, s, scope)) ? s : null)),
+    );
+    return checks.filter((s): s is string => s !== null);
   },
   scope: 'read',
 };
@@ -1225,9 +1347,13 @@ const get_chunks: Operation = {
   description: 'Get content chunks for a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.getChunks(p.slug as string);
+    const slug = p.slug as string;
+    const scope = resolveReadScope(ctx, p);
+    if (!(await slugVisibleInScope(ctx.engine, slug, scope))) return [];
+    return ctx.engine.getChunks(slug);
   },
   scope: 'read',
 };
@@ -1615,11 +1741,23 @@ const find_orphans: Operation = {
       type: 'boolean',
       description: 'Include auto-generated and pseudo pages (default: false)',
     },
+    source_id: { type: 'string', description: 'v37/v38: scope to a source (HARD when token pinned).' },
   },
   scope: 'read',
   handler: async (ctx, p) => {
     const { findOrphans } = await import('../commands/orphans.ts');
-    return findOrphans(ctx.engine, { includePseudo: (p.include_pseudo as boolean) || false });
+    const scope = resolveReadScope(ctx, p);
+    const result = await findOrphans(ctx.engine, { includePseudo: (p.include_pseudo as boolean) || false });
+    if (!scope) return result;
+    // v37/v38 hard-scope: keep only orphans visible in the pinned source.
+    // OrphanPage shape doesn't carry source_id so we re-check via getPage
+    // (index hit on (source_id, slug); bounded by orphan count which is
+    // small in practice).
+    const visible = await Promise.all(
+      result.orphans.map(async (o) => ((await slugVisibleInScope(ctx.engine, o.slug, scope)) ? o : null)),
+    );
+    const filtered = visible.filter((o): o is typeof result.orphans[number] => o !== null);
+    return { ...result, orphans: filtered, total_orphans: filtered.length };
   },
   cliHints: { name: 'orphans', hidden: true },
 };

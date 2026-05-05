@@ -223,7 +223,10 @@ export async function importFromContent(
     tags: parsed.tags,
   };
 
-  const existing = await engine.getPage(slug, { sourceId: opts.sourceId });
+  // v37: scope the dedupe lookup to the same source we'll write to. Without
+  // this, a put_page with sourceId='agent-A' would short-circuit on a
+  // matching hash from sourceId='default' and skip writing the agent-A row.
+  const existing = await engine.getPage(slug, opts.sourceId ? { sourceId: opts.sourceId } : undefined);
   if (existing?.content_hash === hash) {
     return { slug, status: 'skipped', chunks: 0, parsedPage };
   }
@@ -270,7 +273,8 @@ export async function importFromContent(
       timeline: parsed.timeline || '',
       frontmatter: parsed.frontmatter,
       content_hash: hash,
-    }, opts.sourceId);
+      ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
+    });
 
     // Tag reconciliation: remove stale, add current
     const existingTags = await tx.getTags(slug);
