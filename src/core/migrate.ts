@@ -1535,6 +1535,7 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_subagent_messages_provider
         ON subagent_messages (job_id, provider_id);
     `,
+  },
   {
     version: 37,
     name: 'configurable_fts_language',
