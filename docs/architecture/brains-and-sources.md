@@ -279,8 +279,12 @@ slug. With token pinning, that path returns `Page not found`.
 All read tools honor the precedence rule:
 
 - `get_page`, `list_pages` — engine-level filter by `source_id`.
-- `search`, `query` — engine-level filter via `SearchOpts.sourceId`, plus
-  a belt-and-suspenders post-filter.
+- `search`, `query` — engine-level filter via `SearchOpts.sourceId`
+  (PR #660: `searchKeyword`, `searchKeywordChunks`, `searchVector` in both
+  postgres and pglite engines all honor `opts.sourceId` in the WHERE
+  clause), plus a belt-and-suspenders `filterBySourceScope` post-filter.
+  Without engine-level filtering, the inner LIMIT can saturate on
+  other-source rows and the post-filter returns 0.
 - `resolve_slugs` — candidate slugs are filtered to those visible in the
   pinned source.
 - `get_chunks`, `get_tags`, `get_links`, `get_backlinks`,
