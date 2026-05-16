@@ -126,3 +126,12 @@ These apply to ALL brain-writing skills:
 | "make pdf from brain" | `skills/brain-pdf/SKILL.md` |
 
 | "voice note" | `skills/voice-note-ingest/SKILL.md` |
+
+| "indexa esse doc" | `skills/gdoc-ingest/SKILL.md` |
+| "salva esse link" | `skills/gdoc-ingest/SKILL.md` |
+| "ingest gdoc" | `skills/gdoc-ingest/SKILL.md` |
+| "ingest gsheet" | `skills/gdoc-ingest/SKILL.md` |
+| "ingest gslide" | `skills/gdoc-ingest/SKILL.md` |
+| "docs.google.com" | `skills/gdoc-ingest/SKILL.md` |
+| "drive.google.com" | `skills/gdoc-ingest/SKILL.md` |
+| "ingest doc" | `skills/gdoc-ingest/SKILL.md` |
