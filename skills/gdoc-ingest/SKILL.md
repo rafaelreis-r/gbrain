@@ -6,7 +6,7 @@ version: 0.7.0
 #   2: slides + entities + meeting detection
 #   3: vision pipeline (slides w/ bitmap charts)
 #   4: sheets + bug fix (lock contention via batchRead)
-#   5: PDF + crons (crawler/triagem/stale) + Slack auto-trigger
+#   5: PDF + crons (crawler/triagem/stale) + Matrix auto-trigger
 #   6: Iron Law back-links + successor detection
 #   7: LLM evals + E2E + filing rules entry + USAGE.md
 # Status: properly skilled (10/10), 64 tests, E2E validated
@@ -58,7 +58,7 @@ becomes the canonical INDEX.
 ## The rule
 
 **Every Google Workspace document Rafael cares about must be reachable via
-`gbrain__search` within 30 seconds.** No more hunting links across Slack,
+`gbrain__search` within 30 seconds.** No more hunting links across Matrix,
 email, and meeting transcripts. The brain is the catalog; Drive is the
 warehouse.
 
@@ -97,8 +97,8 @@ This skill guarantees:
 ## How to use
 
 **As an agent (preferred):**
-- User pastes a Google Drive URL in `#docs-inbox` (Slack)
-- Agent invokes the skill: `bun ~/gbrain/skills/gdoc-ingest/scripts/gdoc-ingest.mjs "<url>" --via slack-paste`
+- User pastes a Google Drive URL in `#docs-inbox` (Matrix)
+- Agent invokes the skill: `bun ~/gbrain/skills/gdoc-ingest/scripts/gdoc-ingest.mjs "<url>" --via matrix-paste`
 - Agent reads the JSON output and commits via `gbrain__put_page` MCP tool (preferred) or with `--commit` flag (CLI path)
 - Agent posts back: "📎 Indexado em `docs/inbox/<slug>` — proposta: `docs/<disciplina>/<tema>/<slug>`. Confirma?"
 
@@ -176,7 +176,7 @@ bun ~/gbrain/skills/gdoc-ingest/scripts/gdoc-ingest.mjs --batch \
   "page": "(markdown body)",
   "charCount": 1234,
   "indexedAt": "ISO-8601",
-  "indexedVia": "slack-paste|drive-crawler|manual-cli",
+  "indexedVia": "matrix-paste|drive-crawler|manual-cli",
   "isMeetingDoc": false,
   "slideStats": { "totalSlides": 15, "visibleSlides": 15, "hiddenSlides": 0 },
   "entities": { "people": [...], "projects": [...], "decisions": [...] },
