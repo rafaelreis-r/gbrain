@@ -2,7 +2,7 @@
   "name": "gbrain",
   "version": "0.32.3.0",
   "conformance_version": "1.0.0",
-  "description": "Personal knowledge brain with hybrid RAG search \u2014 GStack mod for agent platforms",
+  "description": "Personal knowledge brain with hybrid RAG search — GStack mod for agent platforms",
   "skills": [
     {
       "name": "ingest",
@@ -233,6 +233,11 @@
       "name": "eiirp",
       "path": "eiirp/SKILL.md",
       "description": "Everything In Its Right Place — post-work organizer. 7-phase audit: inventory, taxonomy, schema check (via cathedral CLI), file, skill graph audit, verify, report."
+    },
+    {
+      "name": "gdoc-ingest",
+      "path": "gdoc-ingest/SKILL.md",
+      "description": "Ingest Google Docs/Slides/Sheets/PDF into the brain — meeting detection, entity extraction, Iron Law back-links, successor detection, filing rules."
     }
   ],
   "dependencies": {
