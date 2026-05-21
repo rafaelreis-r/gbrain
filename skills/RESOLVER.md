@@ -36,6 +36,7 @@ This is the dispatcher. Skills are the implementation. **Read the skill file bef
 | "watch this video", "process this YouTube link", "ingest this PDF", "save this podcast", "process this book", "summarize this book", "PDF book", "ingest it into my brain", "what's in this screenshot", "check out this repo" | `skills/media-ingest/SKILL.md` |
 | Meeting transcript received | `skills/meeting-ingestion/SKILL.md` |
 | Generic "ingest this" (auto-routes to above) | `skills/ingest/SKILL.md` |
+| "ingest this Google Doc", "ingira esse gdoc", Google Docs URL | `skills/gdoc-ingest/SKILL.md` |
 
 ## Thinking skills (from GStack)
 
