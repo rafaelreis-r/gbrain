@@ -56,6 +56,7 @@ wins; fix the row.
 | "bulk ingest", "bulk import", "ingest all", "ingestion pipeline" | `skills/bulk-ingestion/SKILL.md` |
 | "ingest this publication", "ingest this whole blog", "ingest this feed", "ingest this newsletter archive" | `skills/blog-ingest/SKILL.md` |
 | "chatgpt export", "claude export", "perplexity export", "conversation history" | `skills/conversation-archive/SKILL.md` |
+| "ingest this Google Doc", "ingira esse gdoc", Google Docs URL | `skills/gdoc-ingest/SKILL.md` |
 
 ## Thinking skills (from GStack)
 
