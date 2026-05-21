@@ -4,13 +4,13 @@
 
 ## TL;DR
 
-**Você não precisa fazer nada.** Cole link Drive em qualquer canal Slack monitorado, eu indexo silenciosamente. Sexta 15h te aviso o que precisa de triagem.
+**Você não precisa fazer nada.** Cole link Drive em qualquer canal Matrix monitorado, eu indexo silenciosamente. Sexta 15h te aviso o que precisa de triagem.
 
 ## Os 4 modos
 
 ### 1. Captura ad-hoc (você cola link)
 
-Cole no Slack:
+Cole no Matrix:
 ```
 https://docs.google.com/spreadsheets/d/...
 ```
@@ -29,7 +29,7 @@ Mesmo fluxo, mas com confirmação visível.
 
 ### 3. Crawler semanal (automático, sex 17h)
 
-Cron varre seu Drive: docs/sheets/slides/PDFs modificados nos últimos 7 dias que ainda não estão indexados. Indexa tudo, ping Slack.
+Cron varre seu Drive: docs/sheets/slides/PDFs modificados nos últimos 7 dias que ainda não estão indexados. Indexa tudo, ping Matrix.
 
 ### 4. CLI manual
 
@@ -82,7 +82,7 @@ file_id: abc123
 mimetype: application/vnd.google-apps.spreadsheet
 last_modified_drive: 2026-05-06T20:30:20Z
 indexed_at: 2026-05-06T23:24:26Z
-indexed_via: slack-paste | drive-crawler | manual-cli
+indexed_via: matrix-paste | drive-crawler | manual-cli
 raw_char_count: 17408
 sheet_stats: { totalTabs: 29, readTabs: 3, priorityTab: "Areas Rafa" }
 ---
@@ -103,7 +103,7 @@ Se o título do novo doc sugere ser uma versão mais recente (ex: "Relatório Ma
 | Cron | Schedule | O que faz |
 |------|----------|-----------|
 | `gdoc-crawler-weekly` | Sex 17h BRT | Varre Drive 7 dias, ingere novos |
-| `gdoc-inbox-triagem-ping` | Sex 15h BRT | Lista pending, ping Slack |
+| `gdoc-inbox-triagem-ping` | Sex 15h BRT | Lista pending, ping Matrix |
 | `gdoc-inbox-stale-check` | Diário 09h BRT | Tag stale-untriaged em items >60d |
 
 ```bash
