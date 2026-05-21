@@ -161,7 +161,7 @@ All `docs/` pages MUST carry these frontmatter keys (see prds/gdoc-ingest):
 - `file_id` (Drive file ID for de-dup)
 - `mimetype` (MIME of the source file)
 - `last_modified_drive` + `indexed_at` (ISO timestamps)
-- `indexed_via: slack-paste | drive-crawler | manual-cli | e2e-test`
+- `indexed_via: matrix-paste | drive-crawler | manual-cli | e2e-test`
 - `raw_char_count` (extracted text length)
 - `is_meeting_doc: true` (if Google Meet transcript or Gemini Anotações)
 - `slide_stats` (for slides) OR `sheet_stats` (for sheets)
@@ -176,7 +176,7 @@ All `docs/` pages MUST carry these frontmatter keys (see prds/gdoc-ingest):
 
 ### Triage workflow
 
-1. Cron `gdoc-inbox-triagem-ping` (sex 15h BRT) lists pending items in Slack.
+1. Cron `gdoc-inbox-triagem-ping` (sex 15h BRT) lists pending items in Matrix.
 2. Rafael responds: ✅ confirma slug, ✏️ corrige tema, 🗑️ descarta, ou 🔗 marca como sucessor.
 3. On confirm: page moves from `docs/inbox/<slug>` to `docs/<disciplina>/<tema>/<slug>`, status changes to `oficial`.
 4. On stale (>60d in inbox): cron auto-tags `stale-untriaged`.
