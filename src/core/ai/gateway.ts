@@ -2196,6 +2196,8 @@ function instantiateExpansion(recipe: Recipe, modelId: string, cfg: AIGatewayCon
     case 'native-anthropic': {
       const apiKey = cfg.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new AIConfigError(`Anthropic expansion requires ANTHROPIC_API_KEY.`, recipe.setup_hint);
+      // NOTE: upstream resolveNativeBaseUrl absorveu nosso patch local (append /v1);
+      // com cfg.env populado do process.env, resolve pra https://api.minimax.io/anthropic/v1.
       const baseURL = resolveNativeBaseUrl('anthropic', cfg);
       return createAnthropic({ apiKey, ...(baseURL ? { baseURL } : {}) }).languageModel(modelId);
     }
@@ -2684,6 +2686,7 @@ function instantiateChat(recipe: Recipe, modelId: string, cfg: AIGatewayConfig):
     case 'native-anthropic': {
       const apiKey = cfg.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new AIConfigError(`Anthropic chat requires ANTHROPIC_API_KEY.`, recipe.setup_hint);
+      // NOTE: upstream resolveNativeBaseUrl absorveu nosso patch local (append /v1).
       const baseURL = resolveNativeBaseUrl('anthropic', cfg);
       return createAnthropic({ apiKey, ...(baseURL ? { baseURL } : {}) }).languageModel(modelId);
     }
