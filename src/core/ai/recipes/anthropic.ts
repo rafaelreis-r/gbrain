@@ -33,7 +33,7 @@ export const anthropic: Recipe = {
       ],
       supports_tools: true,
       supports_subagent_loop: true,
-      supports_prompt_cache: true,
+      supports_prompt_cache: false, // OpenClaw proxy (18801): subagent 429 sob investigação. Mantido false (estado pré-2026-06-02).
       max_context_tokens: 200000,
       cost_per_1m_input_usd: 3.0, // sonnet-class baseline
       cost_per_1m_output_usd: 15.0,
