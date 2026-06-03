@@ -2038,7 +2038,12 @@ function instantiateExpansion(recipe: Recipe, modelId: string, cfg: AIGatewayCon
     case 'native-anthropic': {
       const apiKey = cfg.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new AIConfigError(`Anthropic expansion requires ANTHROPIC_API_KEY.`, recipe.setup_hint);
-      return createAnthropic({ apiKey }).languageModel(modelId);
+      // LOCAL PATCH 2026-06-02: ver nota no case chat abaixo (baseURL do proxy + sufixo /v1).
+      const rawBase = cfg.base_urls?.[recipe.id] ?? cfg.env.ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_BASE_URL ?? undefined;
+      const baseURL = rawBase
+        ? (rawBase.replace(/\/+$/, '').endsWith('/v1') ? rawBase.replace(/\/+$/, '') : rawBase.replace(/\/+$/, '') + '/v1')
+        : undefined;
+      return createAnthropic({ apiKey, ...(baseURL ? { baseURL } : {}) }).languageModel(modelId);
     }
     case 'openai-compatible': {
       // D12=A: unified auth via Recipe.resolveAuth (or default).
@@ -2410,7 +2415,15 @@ function instantiateChat(recipe: Recipe, modelId: string, cfg: AIGatewayConfig):
     case 'native-anthropic': {
       const apiKey = cfg.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new AIConfigError(`Anthropic chat requires ANTHROPIC_API_KEY.`, recipe.setup_hint);
-      return createAnthropic({ apiKey }).languageModel(modelId);
+      // LOCAL PATCH 2026-06-02: @ai-sdk/anthropic ignora ANTHROPIC_BASE_URL do env
+      // E exige baseURL JA COM /v1 (ele apenda so /messages). O raw @anthropic-ai/sdk
+      // (subagent) quer baseURL SEM /v1 (apenda /v1/messages). Assimetria: o proxy
+      // 18801 nu da 404 em /messages. Normalizamos: garante sufixo /v1 pro AI SDK.
+      const rawBase = cfg.base_urls?.[recipe.id] ?? cfg.env.ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_BASE_URL ?? undefined;
+      const baseURL = rawBase
+        ? (rawBase.replace(/\/+$/, '').endsWith('/v1') ? rawBase.replace(/\/+$/, '') : rawBase.replace(/\/+$/, '') + '/v1')
+        : undefined;
+      return createAnthropic({ apiKey, ...(baseURL ? { baseURL } : {}) }).languageModel(modelId);
     }
     case 'openai-compatible': {
       // D12=A: unified auth via Recipe.resolveAuth (or default).
