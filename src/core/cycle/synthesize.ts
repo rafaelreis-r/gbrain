@@ -73,6 +73,8 @@ const MODEL_CONTEXT_TOKENS: Record<string, number> = {
   'claude-sonnet-4-6': 200_000,
   'claude-sonnet-4-5': 200_000,
   'claude-haiku-4-5-20251001': 200_000,
+  // MiniMax M3 via endpoint Anthropic-compatible (api.minimax.io/anthropic).
+  'MiniMax-M3': 1_000_000,
 };
 
 /** Token-to-char ratio. 3.5 matches PR #748; conservative for English text. */
