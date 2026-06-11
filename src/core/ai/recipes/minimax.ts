@@ -144,8 +144,22 @@ export const minimax: Recipe = {
         'MiniMax-M2.1-highspeed',
         'MiniMax-M2',
       ],
-      supports_tools: false,
-      supports_subagent_loop: false,
+      // LOCAL PATCH: upstream declara as duas flags como false (conservador).
+      // Function calling foi validado em producao no endpoint OpenAI-compat e
+      // e o que o tool loop do gateway precisa; minimax/MiniMax-M3 esta no
+      // fallback chain dos agentes. Mantemos true deliberadamente.
+      supports_tools: true,
+      supports_subagent_loop: true,
+      // Anthropic-style cache_control is only honored on MiniMax's
+      // anthropic-compatible endpoint, not the OpenAI-compatible one.
+      supports_prompt_cache: false,
+      // MiniMax-M3 advertises 1M; M2.5 is 200K. Declare the conservative
+      // floor — per-model context is handled by callers (e.g. dream's
+      // MODEL_CONTEXT_TOKENS map).
+      max_context_tokens: 200_000,
+      cost_per_1m_input_usd: 0.6, // M3 list price 2026-06
+      cost_per_1m_output_usd: 2.4,
+      price_last_verified: '2026-06-11',
     },
   },
   setup_hint:
