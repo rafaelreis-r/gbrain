@@ -729,7 +729,14 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
         const queue = new MinionQueue(engine);
         const slotMs = Math.floor(Date.now() / (baseInterval * 1000)) * baseInterval * 1000;
         const slot = new Date(slotMs).toISOString();
-        const timeoutMs = resolveAutopilotDispatchTimeoutMs(baseInterval, false);
+        // LOCAL PATCH: este dispatch "leve" tambem alimenta dispatchGlobalMaintenance
+        // (embed/orphans/purge), que nao cabe no piso de 10min que o helper deriva
+        // do intervalo padrao de 300s. Mantemos o piso de 30min (THIRTY_MIN_MS do
+        // handler) por cima do refactor do upstream.
+        const timeoutMs = Math.max(
+          resolveAutopilotDispatchTimeoutMs(baseInterval, false),
+          1_800_000,
+        );
 
         // ── v0.40 D17: per-source freshness check ────────────────────
         // Runs first; independent of score gate. Submits a 'sync' job per
