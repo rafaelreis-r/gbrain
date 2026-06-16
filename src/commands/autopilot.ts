@@ -638,7 +638,7 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
         const queue = new MinionQueue(engine);
         const slotMs = Math.floor(Date.now() / (baseInterval * 1000)) * baseInterval * 1000;
         const slot = new Date(slotMs).toISOString();
-        const timeoutMs = Math.max(baseInterval * 2 * 1000, 300_000);
+        const timeoutMs = Math.max(baseInterval * 2 * 1000, 1_800_000);
 
         // ── v0.40 D17: per-source freshness check ────────────────────
         // Runs first; independent of score gate. Submits a 'sync' job per
