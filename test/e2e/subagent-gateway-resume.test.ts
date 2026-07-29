@@ -81,6 +81,8 @@ async function makeFakeJob(prompt: string, model: string): Promise<{ jobId: numb
     data: { prompt, model },
     attempts_made: 0,
     signal: new AbortController().signal,
+    // fake job carries no per-job timeout, so there is no claim-time deadline
+    deadlineAtMs: null,
     shutdownSignal: new AbortController().signal,
     updateProgress: async () => {},
     updateTokens: async () => {},
