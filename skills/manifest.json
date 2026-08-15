@@ -368,6 +368,11 @@
       "name": "postgres-adopt",
       "path": "postgres-adopt/SKILL.md",
       "description": "Detect the active engine (PGLite vs Postgres), prefer/install Postgres for harness installs, wrap the guarded engine migration"
+    },
+    {
+      "name": "gdoc-ingest",
+      "path": "gdoc-ingest/SKILL.md",
+      "description": "Ingest Google Docs/Slides/Sheets/PDF into the brain — meeting detection, entity extraction, Iron Law back-links, successor detection, filing rules."
     }
   ],
   "dependencies": {
