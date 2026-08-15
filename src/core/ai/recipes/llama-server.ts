@@ -42,6 +42,15 @@ export const llamaServer: Recipe = {
       // server launched with a larger `-b` can raise this. v0.32 (#779).
       max_batch_items: 32,
     },
+    chat: {
+      models: [],
+      supports_tools: true,
+      supports_subagent_loop: false,
+      supports_prompt_cache: false,
+      cost_per_1m_input_usd: 0,
+      cost_per_1m_output_usd: 0,
+      price_last_verified: '2026-06-15',
+    },
   },
   /**
    * Probe via the OpenAI-compatible /v1/models endpoint. Caller passes the

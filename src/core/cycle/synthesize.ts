@@ -90,6 +90,8 @@ const MODEL_CONTEXT_TOKENS: Record<string, number> = {
   'claude-sonnet-4-6': 200_000,
   'claude-sonnet-4-5': 200_000,
   'claude-haiku-4-5-20251001': 200_000,
+  // MiniMax M3 via endpoint Anthropic-compatible (api.minimax.io/anthropic).
+  'MiniMax-M3': 1_000_000,
 };
 
 /** Token-to-char ratio. 3.5 matches PR #748; conservative for English text. */
@@ -1020,6 +1022,13 @@ export async function runPhaseSynthesize(
           idempotency_key,
           timeout_ms: perChild.timeoutMs,
           queue: childQueueName,
+          // LOCAL PATCH 2026-06-02: endpoint anthropic (proxy/minimax) da 429 em rajada.
+          // Backoff curto (1s default) mata jobs em 3 tentativas. Backoff longo + mais
+          // tentativas faz o backfill sobreviver ao rate-limit noturno.
+          max_attempts: 8,
+          backoff_type: 'exponential',
+          backoff_delay: 45000, // 45s base -> 45/90/180/360... espaca o suficiente p/ 429
+          backoff_jitter: 0.3,
         };
         let child: Awaited<ReturnType<typeof queue.add>>;
         try {
