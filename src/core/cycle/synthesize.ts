@@ -108,6 +108,7 @@ const SUMMARY_SLUG_RE = new RegExp(`^${PAGE_SLUG_SEG}(\\/${PAGE_SLUG_SEG})*$`, '
 
 // ── Model context budget (D1, D5, D7, D9) ─────────────────────────────
 
+
 /** Token-to-char ratio. 3.5 matches PR #748; conservative for English text. */
 export const CHARS_PER_TOKEN = 3.5;
 /** Reserve 10% of context window for system prompt + tool defs + output. */
@@ -950,6 +951,13 @@ async function runPhaseSynthesizeInner(
           private_queue_owner_job_id: opts.privateQueueOwnerJobId ?? null,
           private_queue_owner_token: privateQueueOwnerToken,
           private_queue_lease_ms: DEFAULT_PRIVATE_QUEUE_LEASE_MS,
+          // LOCAL PATCH 2026-06-02: endpoint anthropic (proxy/minimax) da 429 em rajada.
+          // Backoff curto (1s default) mata jobs em 3 tentativas. Backoff longo + mais
+          // tentativas faz o backfill sobreviver ao rate-limit noturno.
+          max_attempts: 8,
+          backoff_type: 'exponential',
+          backoff_delay: 45000, // 45s base -> 45/90/180/360... espaca o suficiente p/ 429
+          backoff_jitter: 0.3,
         };
         let child: Awaited<ReturnType<typeof queue.add>>;
         try {
