@@ -12,7 +12,7 @@
 {"intent":"https://drive.google.com/file/d/abcdefghijklmnopqrstuv/view?usp=sharing","expected_skill":"gdoc-ingest"}
 {"intent":"olha esse documento que a Bruna compartilhou: https://docs.google.com/document/d/abcdefghijklmnopqrstuv/edit","expected_skill":"gdoc-ingest"}
 // MECE counter-cases — these MUST NOT route to gdoc-ingest:
-{"intent":"watch this YouTube video","expected_skill":"media-ingest"}
-{"intent":"process this PDF that I downloaded","expected_skill":"media-ingest"}
+{"intent":"hey, watch this video I found on YouTube","expected_skill":"media-ingest"}
+{"intent":"can you ingest this PDF that I downloaded","expected_skill":"media-ingest"}
 {"intent":"process this meeting transcript file","expected_skill":"meeting-ingestion"}
-{"intent":"crawl my Dropbox archive","expected_skill":"archive-crawler"}
+{"intent":"crawl my archive on Dropbox for old docs","expected_skill":"archive-crawler"}

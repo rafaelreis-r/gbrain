@@ -7,7 +7,7 @@ version: 0.7.0
 #   3: vision pipeline (slides w/ bitmap charts)
 #   4: sheets + bug fix (lock contention via batchRead)
 #   5: PDF + crons (crawler/triagem/stale) + Matrix auto-trigger
-#   6: Iron Law back-links + successor detection
+#   6: back-links automáticos (Iron Law) + successor detection
 #   7: LLM evals + E2E + filing rules entry + USAGE.md
 # Status: properly skilled (10/10), 64 tests, E2E validated
 description: |
@@ -24,6 +24,8 @@ triggers:
   - "ingest gsheet"
   - "ingest gslide"
   - "ingest pdf"
+  - "docs.google.com"
+  - "drive.google.com"
 auto_triggers:
   # When the agent sees a Drive link in a message, run gdoc-ingest in
   # background WITHOUT a verbose response. This is the signal-detector
@@ -73,8 +75,8 @@ This skill guarantees:
   `is_meeting_doc` (when detected), `slide_stats` (when slide).
 - **Slug proposal** for the final filed location:
   `docs/<disciplina>/<tema>/<slug>` derived from title via `inferDisciplinaTema`
-  (taxonomy match, **title-first per
-  [`concepts/title-first-classification`](../../docs/concepts/title-first-classification.md)**)
+  (taxonomy match, **title-first per the brain page
+  `concepts/title-first-classification`**)
   + `slugifyTitle` (kebab-case).
 - **Slide hidden filter** — for Slides, `slides.getAllContent` (default
   `includeHidden: false`) skips hidden slides; the page logs total /
