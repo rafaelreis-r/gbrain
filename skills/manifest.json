@@ -348,6 +348,11 @@
       "name": "skill-autobench",
       "path": "skill-autobench/SKILL.md",
       "description": "Author an eval for an existing skill from its REAL usage history, not its spec. Mine invocations from the brain's conversation archive (conversations/) and per-harness session transcripts — a user correction after an…"
+    },
+    {
+      "name": "gdoc-ingest",
+      "path": "gdoc-ingest/SKILL.md",
+      "description": "Ingest Google Docs/Slides/Sheets/PDF into the brain — meeting detection, entity extraction, Iron Law back-links, successor detection, filing rules."
     }
   ],
   "dependencies": {
