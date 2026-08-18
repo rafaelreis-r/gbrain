@@ -20,7 +20,7 @@ src/commands/autopilot.ts	2301	ratchet
 src/commands/extract.ts	2161	ratchet
 src/commands/extract-conversation-facts.ts	2032	ratchet
 src/core/import-file.ts	2000	ratchet	grown v0.46.11.0 five-issue wave
-src/core/cycle/synthesize.ts	2761	ratchet	grown v0.46.11.0 five-issue wave
+src/core/cycle/synthesize.ts	2770	ratchet	grown v0.46.11.0 five-issue wave
 src/commands/embed.ts	1963	ratchet
 src/core/types.ts	1863	ratchet
 src/commands/skillpack.ts	1360	ratchet
